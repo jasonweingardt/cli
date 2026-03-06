@@ -24,22 +24,22 @@ use std::collections::HashMap;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum ToolMode {
+pub(crate) enum ToolMode {
     Full,
     Compact,
 }
 
 #[derive(Debug, Clone)]
-struct ServerConfig {
-    services: Vec<String>,
-    workflows: bool,
-    _helpers: bool,
-    tool_mode: ToolMode,
+pub(crate) struct ServerConfig {
+    pub(crate) services: Vec<String>,
+    pub(crate) workflows: bool,
+    pub(crate) _helpers: bool,
+    pub(crate) tool_mode: ToolMode,
 }
 
 fn build_mcp_cli() -> Command {
     Command::new("mcp")
-        .about("Starts the MCP server over stdio")
+        .about("Starts the MCP server over stdio or HTTP+SSE")
         .arg(
             Arg::new("services")
                 .long("services")
@@ -68,10 +68,29 @@ fn build_mcp_cli() -> Command {
                 .default_value("full")
                 .help("Tool granularity: 'compact' (1 tool/service + discover) or 'full' (1 tool/method)"),
         )
+        .arg(
+            Arg::new("transport")
+                .long("transport")
+                .value_parser(["stdio", "sse"])
+                .default_value("stdio")
+                .help("Transport mode: 'stdio' (default) or 'sse' (HTTP+SSE server)"),
+        )
+        .arg(
+            Arg::new("port")
+                .long("port")
+                .value_parser(clap::value_parser!(u16))
+                .default_value("8080")
+                .help("Port for HTTP+SSE server (only used with --transport sse)"),
+        )
+        .arg(
+            Arg::new("host")
+                .long("host")
+                .default_value("127.0.0.1")
+                .help("Bind address for HTTP+SSE server (only used with --transport sse)"),
+        )
 }
 
-pub async fn start(args: &[String]) -> Result<(), GwsError> {
-    // Parse args
+pub(crate) fn parse_config(args: &[String]) -> Result<(ServerConfig, String, String, u16), GwsError> {
     let matches = build_mcp_cli().get_matches_from(args);
     let tool_mode = match matches.get_one::<String>("tool-mode").map(|s| s.as_str()) {
         Some("compact") => ToolMode::Compact,
@@ -96,6 +115,19 @@ pub async fn start(args: &[String]) -> Result<(), GwsError> {
         }
     }
 
+    let transport = matches
+        .get_one::<String>("transport")
+        .unwrap()
+        .to_string();
+    let host = matches.get_one::<String>("host").unwrap().to_string();
+    let port = matches.get_one::<u16>("port").copied().unwrap_or(8080);
+
+    Ok((config, transport, host, port))
+}
+
+pub async fn start(args: &[String]) -> Result<(), GwsError> {
+    let (config, transport, host, port) = parse_config(args)?;
+
     if config.services.is_empty() {
         eprintln!("[gws mcp] Warning: No services configured. Zero tools will be exposed.");
         eprintln!("[gws mcp] Re-run with: gws mcp -s <service> (e.g., -s drive,gmail,calendar)");
@@ -108,6 +140,13 @@ pub async fn start(args: &[String]) -> Result<(), GwsError> {
         eprintln!("[gws mcp] Tool mode: {:?}", config.tool_mode);
     }
 
+    match transport.as_str() {
+        "sse" => crate::mcp_http::start_http(config, &host, port).await,
+        _ => start_stdio(config).await,
+    }
+}
+
+async fn start_stdio(config: ServerConfig) -> Result<(), GwsError> {
     let mut stdin = BufReader::new(tokio::io::stdin()).lines();
     let mut stdout = tokio::io::stdout();
 
@@ -125,7 +164,8 @@ pub async fn start(args: &[String]) -> Result<(), GwsError> {
                 let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
                 let params = req.get("params").cloned().unwrap_or_else(|| json!({}));
 
-                let result = handle_request(method, &params, &config, &mut tools_cache).await;
+                let result =
+                    handle_request(method, &params, &config, &mut tools_cache, None).await;
 
                 if !is_notification {
                     let id = req.get("id").unwrap();
@@ -183,11 +223,12 @@ pub async fn start(args: &[String]) -> Result<(), GwsError> {
     Ok(())
 }
 
-async fn handle_request(
+pub(crate) async fn handle_request(
     method: &str,
     params: &Value,
     config: &ServerConfig,
     tools_cache: &mut Option<Vec<Value>>,
+    override_token: Option<&str>,
 ) -> Result<Value, GwsError> {
     match method {
         "initialize" => Ok(json!({
@@ -216,7 +257,7 @@ async fn handle_request(
             // MCP spec: tool execution errors should be returned as successful results
             // with isError: true, NOT as JSON-RPC protocol errors. Returning JSON-RPC
             // errors causes clients to show generic "Tool execution failed" with no detail.
-            match handle_tools_call(params, config).await {
+            match handle_tools_call(params, config, override_token).await {
                 Ok(val) => Ok(val),
                 Err(e) => Ok(json!({
                     "content": [{ "type": "text", "text": e.to_string() }],
@@ -231,7 +272,7 @@ async fn handle_request(
     }
 }
 
-async fn build_tools_list(config: &ServerConfig) -> Result<Vec<Value>, GwsError> {
+pub(crate) async fn build_tools_list(config: &ServerConfig) -> Result<Vec<Value>, GwsError> {
     if config.tool_mode == ToolMode::Compact {
         return build_compact_tools_list(config).await;
     }
@@ -655,7 +696,11 @@ fn find_resource<'a>(
     Some(current_res)
 }
 
-async fn handle_tools_call(params: &Value, config: &ServerConfig) -> Result<Value, GwsError> {
+async fn handle_tools_call(
+    params: &Value,
+    config: &ServerConfig,
+    override_token: Option<&str>,
+) -> Result<Value, GwsError> {
     let tool_name = params
         .get("name")
         .and_then(|n| n.as_str())
@@ -711,7 +756,7 @@ async fn handle_tools_call(params: &Value, config: &ServerConfig) -> Result<Valu
             ))
         })?;
 
-        return execute_mcp_method(&doc, method, arguments).await;
+        return execute_mcp_method(&doc, method, arguments, override_token).await;
     }
 
     // Full mode: tool_name encodes service_resource_method (e.g., drive_files_list)
@@ -761,13 +806,14 @@ async fn handle_tools_call(params: &Value, config: &ServerConfig) -> Result<Valu
         return Err(GwsError::Validation("Resource not found".to_string()));
     };
 
-    execute_mcp_method(&doc, method, arguments).await
+    execute_mcp_method(&doc, method, arguments, override_token).await
 }
 
 async fn execute_mcp_method(
     doc: &crate::discovery::RestDescription,
     method: &crate::discovery::RestMethod,
     arguments: &Value,
+    override_token: Option<&str>,
 ) -> Result<Value, GwsError> {
     let params_json_val = arguments.get("params");
     let params_str = params_json_val
@@ -814,13 +860,17 @@ async fn execute_mcp_method(
     };
 
     let scopes: Vec<&str> = crate::select_scope(&method.scopes).into_iter().collect();
-    let (token, auth_method) = match crate::auth::get_token(&scopes).await {
-        Ok(t) => (Some(t), crate::executor::AuthMethod::OAuth),
-        Err(e) => {
-            eprintln!(
-                "[gws mcp] Warning: Authentication failed, proceeding without credentials: {e}"
-            );
-            (None, crate::executor::AuthMethod::None)
+    let (token, auth_method) = if let Some(t) = override_token {
+        (Some(t.to_string()), crate::executor::AuthMethod::OAuth)
+    } else {
+        match crate::auth::get_token(&scopes).await {
+            Ok(t) => (Some(t), crate::executor::AuthMethod::OAuth),
+            Err(e) => {
+                eprintln!(
+                    "[gws mcp] Warning: Authentication failed, proceeding without credentials: {e}"
+                );
+                (None, crate::executor::AuthMethod::None)
+            }
         }
     };
 
