@@ -60,7 +60,7 @@ steps:
       - "managed"
       - "--port"
       - "8080"
-      - "--allow-unauthenticated"
+      - "--no-allow-unauthenticated"
       - "--set-env-vars"
       - "GWS_SERVICES=${_SERVICES}"
       - "--min-instances"
