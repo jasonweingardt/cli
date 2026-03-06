@@ -1,0 +1,12 @@
+target/
+.git/
+.github/
+docs/
+art/
+skills/
+*.tape
+*.md
+!README.md
+.changeset/
+.env
+.env.*
