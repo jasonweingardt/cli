@@ -31,6 +31,8 @@ mod formatter;
 mod fs_util;
 mod generate_skills;
 mod helpers;
+mod mcp_http;
+mod mcp_server;
 mod oauth_config;
 mod schema;
 mod services;
