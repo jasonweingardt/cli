@@ -134,11 +134,6 @@ async fn run() -> Result<(), GwsError> {
         return auth_commands::handle_auth_command(&auth_args).await;
     }
 
-    // Handle the `mcp` command
-    if first_arg == "mcp" {
-        return mcp_server::start(&args[1..]).await;
-    }
-
     // Parse service name and optional version override
     let (api_name, version) = parse_service_and_version(&args, &first_arg)?;
 
@@ -461,7 +456,7 @@ fn print_usage() {
         "    GOOGLE_WORKSPACE_CLI_SANITIZE_MODE       Sanitization mode: warn (default) or block"
     );
     println!(
-        "    GOOGLE_WORKSPACE_PROJECT_ID              GCP project ID fallback for helper commands"
+        "    GOOGLE_WORKSPACE_PROJECT_ID              Override the GCP project ID for quota and billing"
     );
     println!();
     println!("COMMUNITY:");

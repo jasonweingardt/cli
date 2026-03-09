@@ -3,9 +3,6 @@
 **One CLI for all of Google Workspace — built for humans and AI agents.**<br>
 Drive, Gmail, Calendar, and every Workspace API. Zero boilerplate. Structured JSON output. 40+ agent skills included.
 
-> [!IMPORTANT]
-> Temporarily disabling non-collaborator pull requests. See this discussion, https://github.com/googleworkspace/cli/discussions/249.
-
 > [!NOTE]
 > This is **not** an officially supported Google product.
 
@@ -34,7 +31,6 @@ npm install -g @googleworkspace/cli
 - [Why gws?](#why-gws)
 - [Authentication](#authentication)
 - [AI Agent Skills](#ai-agent-skills)
-- [MCP Server](#mcp-server)
 - [Advanced Usage](#advanced-usage)
 - [Environment Variables](#environment-variables)
 - [Architecture](#architecture)
@@ -258,39 +254,6 @@ The `gws-shared` skill includes an `install` block so OpenClaw auto-installs the
 
 Installing this extension gives your Gemini CLI agent direct access to all `gws` commands and Google Workspace agent skills. Because `gws` handles its own authentication securely, you simply need to authenticate your terminal once prior to using the agent, and the extension will automatically inherit your credentials.
 
-## MCP Server
-
-`gws mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio, exposing Google Workspace APIs as structured tools that any MCP-compatible client (Claude Desktop, Gemini CLI, VS Code, etc.) can call.
-
-```bash
-gws mcp -s drive                  # expose Drive tools
-gws mcp -s drive,gmail,calendar   # expose multiple services
-gws mcp -s all                    # expose all services (many tools!)
-```
-
-Configure in your MCP client:
-
-```json
-{
-  "mcpServers": {
-    "gws": {
-      "command": "gws",
-      "args": ["mcp", "-s", "drive,gmail,calendar"]
-    }
-  }
-}
-```
-
-> [!TIP]
-> Each service adds roughly 10–80 tools. Keep the list to what you actually need
-> to stay under your client's tool limit (typically 50–100 tools).
-
-| Flag                    | Description                                  |
-| ----------------------- | -------------------------------------------- |
-| `-s, --services <list>` | Comma-separated services to expose, or `all` |
-| `-w, --workflows`       | Also expose workflow tools                   |
-| `-e, --helpers`         | Also expose helper tools                     |
-
 ## Advanced Usage
 
 ### Multipart Uploads
@@ -350,7 +313,7 @@ All variables are optional. See [`.env.example`](.env.example) for a copy-paste 
 | `GOOGLE_WORKSPACE_CLI_CONFIG_DIR` | Override config directory (default: `~/.config/gws`) |
 | `GOOGLE_WORKSPACE_CLI_SANITIZE_TEMPLATE` | Default Model Armor template |
 | `GOOGLE_WORKSPACE_CLI_SANITIZE_MODE` | `warn` (default) or `block` |
-| `GOOGLE_WORKSPACE_PROJECT_ID` | GCP project ID fallback for helper commands |
+| `GOOGLE_WORKSPACE_PROJECT_ID` | GCP project ID override for quota/billing and fallback for helper commands |
 
 Environment variables can also be set in a `.env` file (loaded via [dotenvy](https://crates.io/crates/dotenvy)).
 

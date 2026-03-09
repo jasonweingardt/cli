@@ -161,7 +161,6 @@ Use these labels to categorize pull requests and issues:
 - `area: docs` — README, contributing guides, documentation
 - `area: tui` — Setup wizard, picker, input fields
 - `area: distribution` — Nix flake, cargo-dist, npm packaging, install methods
-- `area: mcp` — Model Context Protocol server/tools
 - `area: auth` — OAuth, credentials, multi-account, ADC
 - `area: skills` — AI skill generation and management
 
@@ -200,6 +199,6 @@ Use these labels to categorize pull requests and issues:
 
 | Variable | Description |
 |---|---|
-| `GOOGLE_WORKSPACE_PROJECT_ID` | GCP project ID fallback for `gmail watch` and `events subscribe` helpers (overridden by `--project` flag) |
+| `GOOGLE_WORKSPACE_PROJECT_ID` | GCP project ID override for quota/billing and fallback for helper commands (overridden by `--project` flag) |
 
 All variables can also live in a `.env` file (loaded via `dotenvy`).
